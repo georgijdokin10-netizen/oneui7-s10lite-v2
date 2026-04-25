@@ -1,0 +1,50 @@
+name: Build One UI 7 for S10 Lite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout device/vendor files
+      uses: actions/checkout@v4
+
+    - name: Set up build environment
+      run: |
+        sudo apt update
+        sudo apt install -y openjdk-17-jdk git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 repo
+
+    - name: Download AOSP Android 15
+      run: |
+        mkdir -p ~/aosp
+        cd ~/aosp
+        repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
+        repo sync -c -j4 --force-sync --no-tags
+
+    - name: Copy device and vendor files
+      run: |
+        cd ~/aosp
+        cp -r $GITHUB_WORKSPACE/device/samsung device/
+        cp -r $GITHUB_WORKSPACE/vendor/samsung vendor/
+
+    - name: Clone One UI 7 port
+      run: |
+        cd ~/aosp
+        git clone https://github.com/ProjectGlory/glory_vendor_samsung_oneui7.git -b a15 vendor/samsung/oneui7
+        git clone https://github.com/BlackMesa123/OneUI7_Port.git -b a15 packages/apps/OneUI7
+
+    - name: Build super.img
+      run: |
+        cd ~/aosp
+        source build/envsetup.sh
+        lunch aosp_g770f-userdebug
+        make -j$(nproc) superimage
+
+    - name: Upload super.img
+      uses: actions/upload-artifact@v4
+      with:
+        name: super.img
+        path: ~/aosp/out/target/product/g770f/super.img
