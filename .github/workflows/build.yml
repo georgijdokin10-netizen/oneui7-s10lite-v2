@@ -12,7 +12,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Free disk space (aggressive)
+    - name: Free disk space
       run: |
         sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust,Java,Go}
         sudo docker system prune -af
@@ -23,18 +23,16 @@ jobs:
         sudo apt update
         sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils e2fsprogs p7zip-full
 
-    - name: Cache GSI
-      id: cache-gsi
-      uses: actions/cache@v4
-      with:
-        path: system.img
-        key: gsi-android15-arm64-20250401
-
-    - name: Download GSI (Android 15, arm64) if not cached
-      if: steps.cache-gsi.outputs.cache-hit != 'true'
+    - name: Download Google GSI (Android 15)
       run: |
-        wget -O system.img.xz https://github.com/andyyan/treble_build_aosp/releases/download/v2025.04.15/treble_arm64_bvS.img.xz
-        unxz system.img.xz
+        wget -O gsi.zip https://dl.google.com/developers/android/vic/images/gsi/aosp_arm64-exp-BP11.241121.010-12780007-385447c4.zip
+        unzip gsi.zip
+        # Извлекаем правильный образ, который находится внутри
+        if [ -f "system.img" ]; then
+          mv system.img system_original.img
+        else
+          for f in *.img; do mv "$f" system_original.img; break; done
+        fi
 
     - name: Create minimal vendor.img
       run: |
@@ -48,30 +46,23 @@ jobs:
 
     - name: Build super.img
       run: |
-        SYSTEM_SIZE=$(stat -c%s system.img)
+        SYSTEM_SIZE=$(stat -c%s system_original.img)
         VENDOR_SIZE=$(stat -c%s vendor.img)
         TOTAL=$((SYSTEM_SIZE + VENDOR_SIZE + 1048576))
         lpmake --metadata-size 65536 --super-name super \
           --device super:$TOTAL \
           --group group_android:$((SYSTEM_SIZE + VENDOR_SIZE)) \
           --partition system:readonly:$SYSTEM_SIZE:group_android \
-          --image system=./system.img \
+          --image system=./system_original.img \
           --partition vendor:readonly:$VENDOR_SIZE:group_android \
           --image vendor=./vendor.img \
           --output ./super.img
 
-    - name: Download One UI 7 Launcher module (for later installation)
-      run: |
-        wget -O oneui7-launcher.zip https://github.com/Androidacy/MagiskModuleDownloads/releases/download/term/one-ui-7-launcher.zip
+    - name: Compress super.img
+      run: 7z a super.img.7z super.img
 
-    - name: Upload super.img
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: super.img
-        path: super.img
-
-    - name: Upload One UI 7 module
-      uses: actions/upload-artifact@v4
-      with:
-        name: oneui7-launcher.zip
-        path: oneui7-launcher.zip
+        name: super.img.7z
+        path: super.img.7z
