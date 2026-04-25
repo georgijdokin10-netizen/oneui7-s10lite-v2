@@ -23,7 +23,7 @@ jobs:
       uses: robinraju/release-downloader@v1.13
       with:
         repository: "georgijdokin10-netizen/oneui7-s10lite-v2"
-        tag: "v1.0-blobs"
+        tag: "v1.00-blobs"
         fileName: "*.7z"
         out-file-path: "."
 
