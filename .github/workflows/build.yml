@@ -7,12 +7,22 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
     steps:
     - name: Checkout device tree
       uses: actions/checkout@v4
+
+    - name: Free disk space aggressively
+      run: |
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/share/swift /usr/local/lib/android /opt/microsoft /opt/mssql-tools /opt/pipx /usr/share/java /usr/share/gradle-*
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust,Java,Go,Python}
+        sudo docker system prune -af
+        sudo apt remove --purge -y '^llvm-.*' '^dotnet-.*' '^mono-.*' '^golang-.*' '^php.*' '^mysql.*' '^postgresql.*'
+        sudo apt autoremove -y
+        sudo apt clean
+        df -h
 
     - name: Set up environment
       run: |
@@ -40,11 +50,11 @@ jobs:
         7z x system_blobs.7z -ovendor/samsung/g770f/system
         7z x vendor_blobs.7z -ovendor/samsung/g770f/vendor
 
-    - name: Sync AOSP
+    - name: Sync AOSP (shallow and single-thread)
       run: |
         mkdir -p ~/aosp && cd ~/aosp
         repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
-        repo sync -c -j4 --force-sync --no-tags
+        repo sync -c -j2 --force-sync --no-tags --no-clone-bundle
 
     - name: Copy device and vendor files
       run: |
@@ -55,15 +65,15 @@ jobs:
     - name: Clone One UI 7 port
       run: |
         cd ~/aosp
-        git clone https://github.com/ProjectGlory/glory_vendor_samsung_oneui7.git -b a15 vendor/samsung/oneui7
-        git clone https://github.com/BlackMesa123/OneUI7_Port.git -b a15 packages/apps/OneUI7
+        git clone --depth 1 https://github.com/ProjectGlory/glory_vendor_samsung_oneui7.git -b a15 vendor/samsung/oneui7
+        git clone --depth 1 https://github.com/BlackMesa123/OneUI7_Port.git -b a15 packages/apps/OneUI7
 
     - name: Build super.img
       run: |
         cd ~/aosp
         source build/envsetup.sh
         lunch aosp_g770f-userdebug
-        make -j$(nproc) superimage
+        make -j2 superimage
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
