@@ -9,18 +9,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout device tree
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Set up environment (with 7zip)
+    - name: Set up environment
       run: |
         sudo apt update
         sudo apt install -y openjdk-17-jdk git gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 repo p7zip-full
 
-    - name: Download blobs from Release (7z)
+    - name: Download blobs (7z)
       run: |
-        wget -q https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/system_blobs.7z
-        wget -q https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/vendor_blobs.7z
+        wget -q https://github.com/georgijdokin10-netizen/${REPO_NAME}/releases/download/v1.0-blobs/system_blobs.7z
+        wget -q https://github.com/georgijdokin10-netizen/${REPO_NAME}/releases/download/v1.0-blobs/vendor_blobs.7z
         mkdir -p vendor/samsung/g770f
         7z x system_blobs.7z -ovendor/samsung/g770f/system
         7z x vendor_blobs.7z -ovendor/samsung/g770f/vendor
@@ -31,7 +30,78 @@ jobs:
         repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
         repo sync -c -j4 --force-sync --no-tags
 
-    - name: Copy device and vendor files
+    - name: Copy device/vendor
+#!/bin/bash
+
+# 1. Настройки
+REPO_NAME="oneui7-s10lite-v2"
+REPO_URL="https://github.com/georgijdokin10-netizen/${REPO_NAME}.git"
+TAG="v1.0-blobs"
+
+# 2. Переход в нужную папку (создаём если нет)
+cd /c/Users/Георгий/Desktop 2>/dev/null || cd ~/Desktop
+if [ ! -d "$REPO_NAME" ]; then
+  echo "Клонируем репозиторий..."
+  git clone "$REPO_URL"
+fi
+cd "$REPO_NAME"
+
+# 3. Создаём правильную структуру папок
+echo "Создаём device tree и workflow..."
+mkdir -p device/samsung/g770f
+mkdir -p .github/workflows
+
+# 4. Пишем device.mk
+cat > device/samsung/g770f/device.mk << 'DEVICE_EOF'
+LOCAL_PATH := $(call my-dir)
+include $(CLEAR_VARS)
+PRODUCT_COPY_FILES += $(call find-copy-subdir-files,*,vendor/samsung/g770f/system,system) $(call find-copy-subdir-files,*,vendor/samsung/g770f/vendor,vendor)
+PRODUCT_KNOX_DISABLE := true
+PRODUCT_NAME := g770f
+PRODUCT_DEVICE := g770f
+PRODUCT_BRAND := samsung
+PRODUCT_MODEL := SM-G770F
+PRODUCT_MANUFACTURER := samsung
+DEVICE_EOF
+
+# 5. Пишем vendorsetup.sh
+echo "add_lunch_combo aosp_g770f-userdebug" > device/samsung/g770f/vendorsetup.sh
+
+# 6. Пишем build.yml (с 7z и правильными ссылками)
+cat > .github/workflows/build.yml << 'WORKFLOW_EOF'
+name: Build One UI 7 for S10 Lite
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up environment
+      run: |
+        sudo apt update
+        sudo apt install -y openjdk-17-jdk git gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 repo p7zip-full
+
+    - name: Download blobs (7z)
+      run: |
+        wget -q https://github.com/georgijdokin10-netizen/${REPO_NAME}/releases/download/v1.0-blobs/system_blobs.7z
+        wget -q https://github.com/georgijdokin10-netizen/${REPO_NAME}/releases/download/v1.0-blobs/vendor_blobs.7z
+        mkdir -p vendor/samsung/g770f
+        7z x system_blobs.7z -ovendor/samsung/g770f/system
+        7z x vendor_blobs.7z -ovendor/samsung/g770f/vendor
+
+    - name: Sync AOSP
+      run: |
+        mkdir -p ~/aosp && cd ~/aosp
+        repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
+        repo sync -c -j4 --force-sync --no-tags
+
+    - name: Copy device/vendor
       run: |
         cd ~/aosp
         cp -r $GITHUB_WORKSPACE/device/samsung device/
