@@ -12,48 +12,63 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Install dependencies & free space
+    - name: Free disk space
       run: |
-        sudo apt update
-        sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils p7zip-full
-        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust}
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust,Java,Go}
         sudo docker system prune -af
         df -h
 
-    - name: Download GSI (Android 15, arm64, AB)
+    - name: Install dependencies
       run: |
-        wget -O gsi.img.xz https://github.com/ponces/treble_build_aosp/releases/download/v2025.07.25/treble_arm64_bvS.img.xz
+        sudo apt update
+        sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils e2fsprogs p7zip-full
+
+    - name: Download GSI (Android 15, arm64, AB) - TrebleDroid stable
+      run: |
+        wget --tries=3 --timeout=30 -O gsi.img.xz https://github.com/trebledroid/treble_build_aosp/releases/download/v2025.03.26/treble_arm64_bvS.img.xz
+        if [ ! -f gsi.img.xz ]; then
+          echo "First link failed, trying fallback..."
+          wget --tries=3 --timeout=30 -O gsi.img.xz https://github.com/ponces/treble_build_aosp/releases/download/v2024.12.18/treble_arm64_bvS.img.xz
+        fi
         unxz gsi.img.xz
         mv gsi.img system.img
 
-    - name: Download One UI 7 Magisk module
+    - name: Download One UI 7 Magisk module (stable)
       run: |
-        wget -O oneui7.zip https://github.com/ProjectGlory/OneUI7-MagiskModule/releases/latest/download/OneUI7.zip
+        wget --tries=3 --timeout=30 -O oneui7.zip https://github.com/BlackMesa123/OneUI7_Port/releases/download/v1.0/OneUI7-Magisk.zip
+        if [ ! -f oneui7.zip ]; then
+          echo "Fallback to ProjectGlory module..."
+          wget --tries=3 --timeout=30 -O oneui7.zip https://github.com/ProjectGlory/OneUI7-MagiskModule/releases/download/v1.0/OneUI7.zip
+        fi
 
     - name: Create minimal vendor.img
       run: |
-        dd if=/dev/zero of=vendor.img bs=1M count=16
+        dd if=/dev/zero of=vendor.img bs=1M count=8
         mkfs.ext4 -F vendor.img
-        mkdir -p vendor_mnt
-        sudo mount -t ext4 vendor.img vendor_mnt
-        sudo mkdir -p vendor_mnt/{etc,lib,bin}
-        echo "ro.vendor.build.version.sdk=35" | sudo tee vendor_mnt/build.prop
-        sudo umount vendor_mnt
+        mkdir -p v_mnt
+        sudo mount vendor.img v_mnt
+        sudo mkdir -p v_mnt/etc
+        echo "ro.vendor.build.version.sdk=35" | sudo tee v_mnt/build.prop
+        echo "ro.product.vendor.model=SM-G770F" | sudo tee -a v_mnt/build.prop
+        sudo umount v_mnt
 
-    - name: Inject One UI 7 into system.img
+    - name: Inject One UI 7 module into system.img
       run: |
-        mkdir -p sys_mnt
-        sudo mount -t ext4 -o loop system.img sys_mnt
-        sudo mkdir -p sys_mnt/data/adb/modules/oneui7
-        sudo unzip -q oneui7.zip -d sys_mnt/data/adb/modules/oneui7
-        sudo umount sys_mnt
+        mkdir -p s_mnt
+        sudo mount -o loop system.img s_mnt
+        sudo mkdir -p s_mnt/data/adb/modules/oneui7
+        sudo unzip -q oneui7.zip -d s_mnt/data/adb/modules/oneui7
+        # Cleanup unnecessary large files
+        sudo rm -rf s_mnt/data/adb/modules/oneui7/system/priv-app/OneUIIntro 2>/dev/null || true
+        sudo umount s_mnt
 
-    - name: Create super.img
+    - name: Build super.img
       run: |
-        export SYSTEM_SIZE=$(stat -c%s system.img)
-        export VENDOR_SIZE=$(stat -c%s vendor.img)
+        SYSTEM_SIZE=$(stat -c%s system.img)
+        VENDOR_SIZE=$(stat -c%s vendor.img)
+        TOTAL=$((SYSTEM_SIZE + VENDOR_SIZE + 1048576))
         lpmake --metadata-size 65536 --super-name super \
-          --device super:$((SYSTEM_SIZE + VENDOR_SIZE + 1048576)) \
+          --device super:$TOTAL \
           --group group_android:$((SYSTEM_SIZE + VENDOR_SIZE)) \
           --partition system:readonly:$SYSTEM_SIZE:group_android \
           --image system=./system.img \
@@ -61,8 +76,11 @@ jobs:
           --image vendor=./vendor.img \
           --output ./super.img
 
-    - name: Upload super.img
+    - name: Compress super.img
+      run: 7z a super.img.7z super.img
+
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: super.img
-        path: super.img
+        name: super.img.7z
+        path: super.img.7z
