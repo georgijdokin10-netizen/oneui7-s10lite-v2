@@ -1,4 +1,4 @@
-name: Build super.img (Stock Android 15 + One UI 7 Launcher)
+name: Build super.img (Android 15 GSI)
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Free disk space
+    - name: Free disk space (aggressive)
       run: |
         sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust,Java,Go}
         sudo docker system prune -af
@@ -23,35 +23,28 @@ jobs:
         sudo apt update
         sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils e2fsprogs p7zip-full
 
-    - name: Download Google GSI (Android 15, arm64) - official
+    - name: Cache GSI
+      id: cache-gsi
+      uses: actions/cache@v4
+      with:
+        path: system.img
+        key: gsi-android15-arm64-20250401
+
+    - name: Download GSI (Android 15, arm64) if not cached
+      if: steps.cache-gsi.outputs.cache-hit != 'true'
       run: |
-        # Official Google GSI for Android 15 (March 2025 build)
-        wget -O gsi.zip https://dl.google.com/developers/android/vic/images/gsi/aosp_arm64-exp-BP11.241121.010-12780007-385447c4.zip
-        unzip gsi.zip
-        # The zip contains a single .img file; rename it to system.img
-        mv *.img system.img
+        wget -O system.img.xz https://github.com/andyyan/treble_build_aosp/releases/download/v2025.04.15/treble_arm64_bvS.img.xz
+        unxz system.img.xz
 
     - name: Create minimal vendor.img
       run: |
-        dd if=/dev/zero of=vendor.img bs=1M count=8
+        dd if=/dev/zero of=vendor.img bs=1M count=2
         mkfs.ext4 -F vendor.img
         mkdir -p v_mnt
         sudo mount vendor.img v_mnt
         echo "ro.vendor.build.version.sdk=35" | sudo tee v_mnt/build.prop
         echo "ro.product.vendor.model=SM-G770F" | sudo tee -a v_mnt/build.prop
         sudo umount v_mnt
-
-    - name: Download One UI 7 Launcher Magisk Module
-      run: |
-        wget -O oneui7.zip https://github.com/Androidacy/MagiskModuleDownloads/releases/download/term/one-ui-7-launcher.zip
-
-    - name: Inject One UI 7 module into system.img
-      run: |
-        mkdir -p s_mnt
-        sudo mount -o loop system.img s_mnt
-        sudo mkdir -p s_mnt/data/adb/modules/oneui7
-        sudo unzip -q oneui7.zip -d s_mnt/data/adb/modules/oneui7
-        sudo umount s_mnt
 
     - name: Build super.img
       run: |
@@ -67,11 +60,18 @@ jobs:
           --image vendor=./vendor.img \
           --output ./super.img
 
-    - name: Compress super.img
-      run: 7z a super.img.7z super.img
+    - name: Download One UI 7 Launcher module (for later installation)
+      run: |
+        wget -O oneui7-launcher.zip https://github.com/Androidacy/MagiskModuleDownloads/releases/download/term/one-ui-7-launcher.zip
 
-    - name: Upload artifact
+    - name: Upload super.img
       uses: actions/upload-artifact@v4
       with:
-        name: super.img.7z
-        path: super.img.7z
+        name: super.img
+        path: super.img
+
+    - name: Upload One UI 7 module
+      uses: actions/upload-artifact@v4
+      with:
+        name: oneui7-launcher.zip
+        path: oneui7-launcher.zip
