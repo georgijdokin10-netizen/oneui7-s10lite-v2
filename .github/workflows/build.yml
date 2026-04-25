@@ -1,4 +1,4 @@
-name: Build One UI 7 for S10 Lite
+name: Build super.img (GSI + One UI 7)
 
 on:
   workflow_dispatch:
@@ -7,76 +7,62 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: read
+    runs-on: ubuntu-latest
     steps:
-    - name: Checkout device tree
+    - name: Checkout
       uses: actions/checkout@v4
 
-    - name: Free disk space aggressively
-      run: |
-        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/share/swift /usr/local/lib/android /opt/microsoft /opt/mssql-tools /opt/pipx /usr/share/java /usr/share/gradle-*
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust,Java,Go,Python}
-        sudo docker system prune -af
-        sudo apt remove --purge -y '^llvm-.*' '^dotnet-.*' '^mono-.*' '^golang-.*' '^php.*' '^mysql.*' '^postgresql.*'
-        sudo apt autoremove -y
-        sudo apt clean
-        df -h
-
-    - name: Set up environment
+    - name: Install dependencies & free space
       run: |
         sudo apt update
-        sudo apt install -y openjdk-17-jdk git gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 p7zip-full
+        sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils p7zip-full
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"/{Android,CodeQL,Rust}
+        sudo docker system prune -af
+        df -h
 
-    - name: Install latest repo
+    - name: Download GSI (Android 15, arm64, AB)
       run: |
-        mkdir -p ~/bin
-        curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-        chmod a+x ~/bin/repo
-        echo "$HOME/bin" >> $GITHUB_PATH
+        wget -O gsi.img.xz https://github.com/ponces/treble_build_aosp/releases/download/v2025.07.25/treble_arm64_bvS.img.xz
+        unxz gsi.img.xz
+        mv gsi.img system.img
 
-    - name: Download blobs from Release
-      uses: robinraju/release-downloader@v1.13
-      with:
-        repository: "georgijdokin10-netizen/oneui7-s10lite-v2"
-        tag: "v1.00-blobs"
-        fileName: "*.7z"
-        out-file-path: "."
-
-    - name: Extract blobs
+    - name: Download One UI 7 Magisk module
       run: |
-        mkdir -p vendor/samsung/g770f
-        7z x system_blobs.7z -ovendor/samsung/g770f/system
-        7z x vendor_blobs.7z -ovendor/samsung/g770f/vendor
+        wget -O oneui7.zip https://github.com/ProjectGlory/OneUI7-MagiskModule/releases/latest/download/OneUI7.zip
 
-    - name: Sync AOSP (shallow and single-thread)
+    - name: Create minimal vendor.img
       run: |
-        mkdir -p ~/aosp && cd ~/aosp
-        repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
-        repo sync -c -j2 --force-sync --no-tags --no-clone-bundle
+        dd if=/dev/zero of=vendor.img bs=1M count=16
+        mkfs.ext4 -F vendor.img
+        mkdir -p vendor_mnt
+        sudo mount -t ext4 vendor.img vendor_mnt
+        sudo mkdir -p vendor_mnt/{etc,lib,bin}
+        echo "ro.vendor.build.version.sdk=35" | sudo tee vendor_mnt/build.prop
+        sudo umount vendor_mnt
 
-    - name: Copy device and vendor files
+    - name: Inject One UI 7 into system.img
       run: |
-        cd ~/aosp
-        cp -r $GITHUB_WORKSPACE/device/samsung device/
-        cp -r $GITHUB_WORKSPACE/vendor/samsung vendor/
+        mkdir -p sys_mnt
+        sudo mount -t ext4 -o loop system.img sys_mnt
+        sudo mkdir -p sys_mnt/data/adb/modules/oneui7
+        sudo unzip -q oneui7.zip -d sys_mnt/data/adb/modules/oneui7
+        sudo umount sys_mnt
 
-    - name: Clone One UI 7 port
+    - name: Create super.img
       run: |
-        cd ~/aosp
-        git clone --depth 1 https://github.com/ProjectGlory/glory_vendor_samsung_oneui7.git -b a15 vendor/samsung/oneui7
-        git clone --depth 1 https://github.com/BlackMesa123/OneUI7_Port.git -b a15 packages/apps/OneUI7
+        export SYSTEM_SIZE=$(stat -c%s system.img)
+        export VENDOR_SIZE=$(stat -c%s vendor.img)
+        lpmake --metadata-size 65536 --super-name super \
+          --device super:$((SYSTEM_SIZE + VENDOR_SIZE + 1048576)) \
+          --group group_android:$((SYSTEM_SIZE + VENDOR_SIZE)) \
+          --partition system:readonly:$SYSTEM_SIZE:group_android \
+          --image system=./system.img \
+          --partition vendor:readonly:$VENDOR_SIZE:group_android \
+          --image vendor=./vendor.img \
+          --output ./super.img
 
-    - name: Build super.img
-      run: |
-        cd ~/aosp
-        source build/envsetup.sh
-        lunch aosp_g770f-userdebug
-        make -j2 superimage
-
-    - name: Upload artifact
+    - name: Upload super.img
       uses: actions/upload-artifact@v4
       with:
         name: super.img
-        path: ~/aosp/out/target/product/g770f/super.img
+        path: super.img
