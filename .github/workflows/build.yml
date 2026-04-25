@@ -9,27 +9,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout device files
+    - name: Checkout device tree
       uses: actions/checkout@v4
 
-    - name: Download blobs from Release
-      run: |
-        wget https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/system_blobs.zip
-        wget https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/vendor_blobs.zip
-        mkdir -p vendor/samsung/g770f
-        unzip -q system_blobs.zip -d vendor/samsung/g770f/system
-        unzip -q vendor_blobs.zip -d vendor/samsung/g770f/vendor
-        rm system_blobs.zip vendor_blobs.zip
-
-    - name: Set up build environment
+    - name: Set up environment (with 7zip)
       run: |
         sudo apt update
-        sudo apt install -y openjdk-17-jdk git-core gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 repo
+        sudo apt install -y openjdk-17-jdk git gnupg flex bison build-essential zip curl zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip fontconfig python3 repo p7zip-full
 
-    - name: Download AOSP Android 15
+    - name: Download blobs from Release (7z)
       run: |
-        mkdir -p ~/aosp
-        cd ~/aosp
+        wget -q https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/system_blobs.7z
+        wget -q https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/vendor_blobs.7z
+        mkdir -p vendor/samsung/g770f
+        7z x system_blobs.7z -ovendor/samsung/g770f/system
+        7z x vendor_blobs.7z -ovendor/samsung/g770f/vendor
+
+    - name: Sync AOSP
+      run: |
+        mkdir -p ~/aosp && cd ~/aosp
         repo init -u https://android.googlesource.com/platform/manifest -b android-15.0.0_r1 --depth=1
         repo sync -c -j4 --force-sync --no-tags
 
@@ -52,7 +50,7 @@ jobs:
         lunch aosp_g770f-userdebug
         make -j$(nproc) superimage
 
-    - name: Upload super.img
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: super.img
