@@ -1,4 +1,4 @@
-name: Build super.img (Stock Android 15)
+name: Build super.img (Stock Android 15 + One UI 7 Launcher)
 
 on:
   workflow_dispatch:
@@ -23,11 +23,12 @@ jobs:
         sudo apt update
         sudo apt install -y wget unzip lz4 android-sdk-libsparse-utils e2fsprogs p7zip-full
 
-    - name: Download Google GSI (Android 15, arm64)
+    - name: Download Google GSI (Android 15, arm64) - official
       run: |
-        # This is a direct, permanent URL from Google for the official Android 15 GSI
-        wget -O system.img https://dl.google.com/developers/android/vic/images/gsi/aosp_arm64-exp-BP11.241121.010-12780007-385447c4.zip
-        unzip aosp_arm64-exp-BP11.241121.010-12780007-385447c4.zip
+        # Official Google GSI for Android 15 (March 2025 build)
+        wget -O gsi.zip https://dl.google.com/developers/android/vic/images/gsi/aosp_arm64-exp-BP11.241121.010-12780007-385447c4.zip
+        unzip gsi.zip
+        # The zip contains a single .img file; rename it to system.img
         mv *.img system.img
 
     - name: Create minimal vendor.img
@@ -42,15 +43,14 @@ jobs:
 
     - name: Download One UI 7 Launcher Magisk Module
       run: |
-        # Download the latest One UI 7 Launcher module from a reliable source
-        wget -O oneui7_launcher.zip https://github.com/Androidacy/MagiskModuleDownloads/releases/download/term/one-ui-7-launcher.zip
+        wget -O oneui7.zip https://github.com/Androidacy/MagiskModuleDownloads/releases/download/term/one-ui-7-launcher.zip
 
     - name: Inject One UI 7 module into system.img
       run: |
         mkdir -p s_mnt
         sudo mount -o loop system.img s_mnt
-        sudo mkdir -p s_mnt/data/adb/modules/oneui7_launcher
-        sudo unzip -q oneui7_launcher.zip -d s_mnt/data/adb/modules/oneui7_launcher
+        sudo mkdir -p s_mnt/data/adb/modules/oneui7
+        sudo unzip -q oneui7.zip -d s_mnt/data/adb/modules/oneui7
         sudo umount s_mnt
 
     - name: Build super.img
