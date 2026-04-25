@@ -9,8 +9,17 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout device/vendor files
+    - name: Checkout device files
       uses: actions/checkout@v4
+
+    - name: Download blobs from Release
+      run: |
+        wget https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/system_blobs.zip
+        wget https://github.com/georgijdokin10-netizen/oneui7-s10lite-v2/releases/download/v1.0-blobs/vendor_blobs.zip
+        mkdir -p vendor/samsung/g770f
+        unzip -q system_blobs.zip -d vendor/samsung/g770f/system
+        unzip -q vendor_blobs.zip -d vendor/samsung/g770f/vendor
+        rm system_blobs.zip vendor_blobs.zip
 
     - name: Set up build environment
       run: |
